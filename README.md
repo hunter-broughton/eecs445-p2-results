@@ -1,8 +1,10 @@
 # Paco's Puppy Problem — Deep Learning for Dog Breed Classification
 
-A deep learning project (EECS 445, University of Michigan) that classifies dog breeds from 64×64 images, built to **compare CNNs, transfer learning, and Vision Transformers** on the same task — and to diagnose *why* they succeed or fail.
+A deep learning project (EECS 445, University of Michigan) that classifies dog breeds from 64×64 images, built to **compare CNNs, transfer learning, and Vision Transformers** on the same task.
 
-> This repository is a write-up of the project — architecture, methodology, and results. The source code lives in a separate private repository for academic-integrity reasons.
+> ## ⚠️ Academic Integrity Notice
+>
+> **This repository intentionally does *not* contain any source code or concrete implementation details.** It is a results-and-methodology write-up only — figures, findings, and high-level design decisions. The actual code (model definitions, training scripts, exact hyperparameters, and any starter/assignment code) is deliberately withheld to **comply with the University of Michigan Engineering Honor Code**, since EECS 445 is an active course. Nothing here should be usable to complete the assignment; it exists to showcase what I learned and the results I achieved.
 
 ![Preprocessing preview](visualize_data.png)
 
@@ -10,7 +12,7 @@ A deep learning project (EECS 445, University of Michigan) that classifies dog b
 
 ## Overview
 
-Paco's puppies escaped, and the task was to identify them from images. I built an end-to-end image classification pipeline in **PyTorch** and used it to answer a research question: *how much does performance improve as you move from a baseline CNN → transfer learning → a Vision Transformer built from scratch — and where does each approach break?*
+Paco's puppies escaped, and the task was to identify them from images. I built an end-to-end image classification pipeline in **PyTorch** and used it to answer a research question: *how much does architecture and transfer learning matter when training data is scarce?*
 
 **The problem:**
 - **Dataset:** 8,867 dog images (only ~300 samples for the binary target task)
@@ -30,27 +32,24 @@ Paco's puppies escaped, and the task was to identify them from images. I built a
 | Vision Transformer (from scratch) | 0.955 | 0.553 | 7,394 |
 | **Challenge model (ensemble)** | — | **0.812** | — |
 
-**The most important finding:** the baseline CNN's strong validation AUROC (0.962) collapsed to 0.751 on test — a classic case of the model **learning backgrounds instead of dogs**. Transfer learning with frozen features acted as a regularizer and pushed test AUROC up to **0.826**, the best result in the project.
+**The most important finding:** the baseline CNN's strong validation AUROC (0.962) collapsed to 0.751 on test — a classic case of the model **learning backgrounds instead of dogs**. Transfer learning with frozen features corrected for this and gave the best single-model test performance.
 
 ---
 
 ## What I Built
 
 ### 1. Data preprocessing pipeline
-Computes **per-channel mean and standard deviation on the training split only** (to avoid data leakage), standardizes all splits, and converts images into PyTorch tensors. Includes visualization tooling for raw data and label distributions.
+Computes **per-channel mean and standard deviation on the training split only** (to avoid data leakage), standardizes all splits, and converts images into PyTorch tensors, with visualization tooling to inspect the data.
 
 ### 2. Baseline CNN
 A 3-layer convolutional network (39,754 parameters) trained with Adam, patience-based early stopping, and checkpointing.
 
 - Compared **early-stopping patience of 5 vs. 10** — patience of 5 (stopped at epoch 13) generalized better than patience of 10 (epoch 18).
 - Studied classifier capacity: widening the final conv layer 8 → 64 filters (FC input 32 → 256) improved AUROC but overfit sooner.
-- **Diagnosed the failure mode:** the val→test drop (0.962 → 0.751) traces to a **background bias** — Collies tended to appear in grassy/outdoor settings while Golden Retrievers had varied backgrounds. The model learned to classify *backgrounds*, not breeds.
+- **Diagnosed the failure mode:** the val→test drop (0.962 → 0.751) traces to a **background bias** — Collies tended to appear in grassy/outdoor settings while Golden Retrievers had varied backgrounds.
 
-![Baseline CNN training curve](cnn_training_plot_patience=5.png)
-
-The label visualization that exposed the background bias:
-
-![Label visualization](visualize_labels.png)
+![Baseline CNN training curve, patience=5](cnn_training_plot_patience=5.png)
+![Baseline CNN training curve, patience=10](cnn_training_plot_patience=10.png)
 
 ### 3. Source pretraining + transfer learning
 Trained the same backbone on the **8-class auxiliary breed problem** (best epoch 11, val loss 1.79), then transferred those weights and ran a controlled **freezing study**:
@@ -67,6 +66,10 @@ The source-task confusion matrix (easiest breeds: Samoyeds, Saint Bernards, Dalm
 
 ![Confusion matrix](confusion_matrix.png)
 
+Source-task training curve:
+
+![Source training curve](source_training_plot_patience=10.png)
+
 Transfer-learning training curves across freezing configurations:
 
 ![Transfer learning, 0 frozen layers](target_training_plot_frozen_layers=0.png)
@@ -75,9 +78,9 @@ Transfer-learning training curves across freezing configurations:
 ![Transfer learning, 3 frozen layers](target_training_plot_frozen_layers=3.png)
 
 ### 4. Vision Transformer (from scratch)
-Implemented a ViT (7,394 parameters) in PyTorch entirely from core components: **patchification**, **sinusoidal positional embeddings**, **multi-head self-attention** (per-head Q/K/V, scaled dot-product), **transformer encoder blocks** with residual connections and pre-norm, and a learnable **classification token** (BERT-style `[CLS]`) with an MLP head.
+Implemented a ViT (7,394 parameters) in PyTorch entirely from core components: **patchification**, **sinusoidal positional embeddings**, and **multi-head self-attention** (per-head Q/K/V, scaled dot-product attention).
 
-**Result & analysis:** ViT reached 0.955 val AUROC but only **0.553 test AUROC** — barely above random. With ~300 training samples, the ViT lacked the inductive biases (translation invariance, locality) that CNNs get for free, so it couldn't learn effective attention patterns. A concrete demonstration of *why CNNs still win on small image datasets*.
+**Result & analysis:** ViT reached 0.955 val AUROC but only **0.553 test AUROC** — barely above random. With ~300 training samples, the ViT lacked the inductive biases (translation invariance, locality) that let CNNs generalize from small data.
 
 ![ViT training curve](vit_training_plot_patience=5.png)
 
@@ -105,7 +108,7 @@ Individual epoch AUROCs ranged 0.807–0.819; the ensemble landed at **0.812**. 
 | Normalization | Train-split stats only | Prevented data leakage |
 | Early stopping | Compared patience 5 vs. 10 | Avoided overfitting |
 | Transfer learning | Freezing study (0–all layers) | Frozen features regularized against background bias |
-| Bias diagnosis | Inspected label visualizations | Explained the val→test collapse |
+| Bias diagnosis | Inspected data/label visualizations | Explained the val→test collapse |
 | ViT | Built attention from scratch | Direct CNN-vs-transformer comparison |
 | Regularization | Tuned dropout, weight decay, augmentation | Balanced capacity vs. generalization on 300 samples |
 | Final predictions | 5-epoch checkpoint ensemble | Reduced variance on unseen data |
